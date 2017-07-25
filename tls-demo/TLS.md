@@ -34,64 +34,23 @@ $ openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out
 
 在我们的server中使用刚才生成的服务端证书：
 ```
-package main
-
-import (
-	"fmt"
-	"net/http"
-)
-
-func main() {
-	// 简单的https的web server
-	http.HandleFunc("/", handler)
-	err := http.ListenAndServeTLS(":8080", "server.crt", "server.key", nil)
-	if err != nil {
-		fmt.Println(err)
-	}
-}
-
-func handler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, "This is a example of test https service")
-}
+http.ListenAndServeTLS(":8080", "server.crt", "server.key", nil)
 ```
 
 在我们的cli中访问我们的server：
 ```
-package main
+certPool := x509.NewCertPool()
 
-import (
-	"crypto/tls"
-	"crypto/x509"
-	"fmt"
-	"io/ioutil"
-	"net/http"
-)
+caCrt, err := ioutil.ReadFile("ca.crt")
 
-func main() {
-	certPool := x509.NewCertPool()
-	caCrt, err := ioutil.ReadFile("ca.crt")
-	if err != nil {
-		fmt.Println("ReadFile err:", err)
-	}
+certPool.AppendCertsFromPEM(caCrt)
 
-	certPool.AppendCertsFromPEM(caCrt)
-
-	client := http.Client{Transport: &http.Transport{
-		TLSClientConfig: &tls.Config{
-			RootCAs: certPool,
-		},
-	}}
-
-	resp, err := client.Get("https://localhost:8080")
-	if err != nil {
-		fmt.Println("Get error:", err)
-		return
-	}
-
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	fmt.Println(string(body))
-}
+client := http.Client{Transport: &http.Transport{
+	TLSClientConfig: &tls.Config{
+		RootCAs: certPool,
+	},
+}}
+client.Get("https://localhost:8080")
 ```
 
 ### 2. 对客户端证书进行校验
@@ -113,93 +72,40 @@ $ openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out
 
 server端需要校验client的数字证书，加载用于校验的ca.crt：
 ```
-package main
+certPool := x509.NewCertPool()
+caCrt, err := ioutil.ReadFile("ca.crt")
 
-import (
-	"crypto/tls"
-	"crypto/x509"
-	"fmt"
-	"io/ioutil"
-	"net/http"
-)
+certPool.AppendCertsFromPEM(caCrt)
 
-func main() {
-	// 简单的https的web server
-	certPool := x509.NewCertPool()
-	caCrt, err := ioutil.ReadFile("ca.crt")
-	if err != nil {
-		fmt.Println("ReadFile err:", err)
-	}
-	certPool.AppendCertsFromPEM(caCrt)
-
-	server := &http.Server{
-		Addr:    ":8080",
-		Handler: &TestHandler{},
-		TLSConfig: &tls.Config{
-			ClientCAs:  certPool,
-			ClientAuth: tls.RequireAndVerifyClientCert,
-		},
-	}
-	err = server.ListenAndServeTLS("server.crt", "server.key")
-	if err != nil {
-		fmt.Println(err)
-	}
+server := &http.Server{
+	Addr:    ":8080",
+	Handler: &TestHandler{},
+	TLSConfig: &tls.Config{
+		ClientCAs:  certPool,
+		ClientAuth: tls.RequireAndVerifyClientCert,
+	},
 }
-
-type TestHandler struct {
-	http.Handler
-}
-
-func (t *TestHandler) ServerHttp(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, "This is a example of test https service")
-}
+server.ListenAndServeTLS("server.crt", "server.key")
 ```
 
 客户端也需要加载自身的数字证书，用于server端连接时做证书校验：
 ```
-package main
+certPool := x509.NewCertPool()
+caCrt, err := ioutil.ReadFile("ca.crt")
 
-import (
-	"crypto/tls"
-	"crypto/x509"
-	"fmt"
-	"io/ioutil"
-	"net/http"
-)
+certPool.AppendCertsFromPEM(caCrt)
 
-func main() {
-	certPool := x509.NewCertPool()
-	caCrt, err := ioutil.ReadFile("ca.crt")
-	if err != nil {
-		fmt.Println("ReadFile err:", err)
-	}
-
-	certPool.AppendCertsFromPEM(caCrt)
-
-	clientCrt, err := tls.LoadX509KeyPair("client.crt", "client.key")
-	if err != nil {
-		fmt.Println("LoadX509KeyPair err:", err)
-	}
-
-	client := http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs:      certPool,
-				Certificates: []tls.Certificate{clientCrt},
-			},
+clientCrt, err := tls.LoadX509KeyPair("client.crt", "client.key")
+client := http.Client{
+	Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{
+			RootCAs:      certPool,
+			Certificates: []tls.Certificate{clientCrt},
 		},
-	}
-
-	resp, err := client.Get("https://localhost:8080")
-	if err != nil {
-		fmt.Println("Get error:", err)
-		return
-	}
-
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	fmt.Println(string(body))
+	},
 }
+
+client.Get("https://localhost:8080")
 ```
 
 备注：可以查看自己的证书的cmd哦
